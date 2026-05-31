@@ -37,7 +37,7 @@ export function SiteFooter({ language, canAccessBarberArea, canAccessAdminArea }
                 <Scissors size={18} className="rotate-90" />
               </div>
               <h2 className="font-display text-lg font-bold tracking-widest text-[#f5f3ef]">
-                BARBER BROTHERS
+                SuLoCut
               </h2>
             </a>
             <p className="text-xs max-w-xs leading-relaxed">
@@ -150,7 +150,7 @@ export function SiteFooter({ language, canAccessBarberArea, canAccessAdminArea }
 
         {/* Copyright Strip */}
         <div className="mt-12 border-t border-white/5 pt-8 text-center text-[10px] uppercase tracking-wider text-[var(--text-muted)] flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© {new Date().getFullYear()} BARBER BROTHERS. ALL RIGHTS RESERVED.</p>
+          <p>© {new Date().getFullYear()} SuLoCut. ALL RIGHTS RESERVED.</p>
           <p className="hover:text-[var(--accent-gold)] transition-colors">DESIGNED & DEVELOPED FOR THE ULTIMATE CUT</p>
         </div>
       </div>

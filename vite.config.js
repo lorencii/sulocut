@@ -4,8 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 const manifest = {
-  name: 'Barber Brothers',
-  short_name: 'Barber Brothers',
+  name: 'SuLoCut',
+  short_name: 'SuLoCut',
   description: 'Premium barber shop reservations and shop management.',
   start_url: '/',
   scope: '/',

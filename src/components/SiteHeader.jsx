@@ -41,7 +41,7 @@ export function SiteHeader({ currentRoute, language, setLanguage, canAccessBarbe
           </div>
           <div>
             <h1 className="font-display text-xl font-bold tracking-widest text-[#f5f3ef] group-hover:text-[var(--accent-gold)] transition-colors">
-              BARBER BROTHERS
+              SuLoCut
             </h1>
             <p className="text-[10px] font-medium tracking-widest text-[var(--text-muted)] uppercase">
               Fushe Kosove

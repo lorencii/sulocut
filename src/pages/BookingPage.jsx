@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAppointmentsRealtime } from '../hooks/useAppointmentsRealtime'
-import { buildAvailableSlots, dayOfWeek, toISODate, todayISO, toTime } from '../utils/time'
+import { buildAvailableSlots, dayOfWeek, intervalsOverlap, toISODate, todayISO, toMinutes, toTime } from '../utils/time'
 
 const COPY = {
   sq: {
@@ -40,6 +40,7 @@ const COPY = {
     noBarbers: 'Asnjë berber nuk është caktuar për këtë shërbim.',
     chooseBarberFirst: 'Zgjidh një berber për të parë orarët e lirë.',
     noSlots: 'Nuk ka orare të lira për këtë zgjedhje.',
+    reserved: 'I rezervuar',
     firstName: 'Emri',
     lastName: 'Mbiemri',
     phone: 'Numri i telefonit',
@@ -52,12 +53,15 @@ const COPY = {
     bookAnother: 'Bëj një rezervim tjetër',
     close: 'Mbyll',
     unavailable: 'Ky orar nuk është më i lirë.',
+    conflictWithSlot: 'Shërbimi yt zgjat {duration} minuta, por ora {time} është i zënë. Zgjidh një orar tjetër.',
+    conflictGeneric: 'Shërbimi yt zgjat {duration} minuta dhe përplaset me një rezervim ekzistues. Zgjidh një orar tjetër.',
     summary: 'Përmbledhje',
     service: 'Shërbimi',
     barber: 'Berberi',
     date: 'Data',
     time: 'Ora',
     total: 'Totali',
+    durationLabel: 'Kohëzgjatja',
     nextStep: 'Hapi tjetër',
     duration: 'min',
     paidInPerson: 'paguhet në dyqan',
@@ -112,6 +116,7 @@ const COPY = {
     noBarbers: 'No barber is assigned to this service yet.',
     chooseBarberFirst: 'Choose a barber to see available times.',
     noSlots: 'No open times for this selection.',
+    reserved: 'Reserved',
     firstName: 'First name',
     lastName: 'Last name',
     phone: 'Phone number',
@@ -124,12 +129,15 @@ const COPY = {
     bookAnother: 'Book another appointment',
     close: 'Close',
     unavailable: 'This time is no longer available.',
+    conflictWithSlot: 'Your service lasts {duration} minutes, but {time} is already booked. Please choose another time.',
+    conflictGeneric: 'Your service lasts {duration} minutes and overlaps an existing booking. Please choose another time.',
     summary: 'Summary',
     service: 'Service',
     barber: 'Barber',
     date: 'Date',
     time: 'Time',
     total: 'Total',
+    durationLabel: 'Duration',
     nextStep: 'Next step',
     duration: 'min',
     paidInPerson: 'paid in person',
@@ -167,6 +175,46 @@ const COPY = {
 function formatEuro(value) {
   if (value === undefined || value === null || value === '') return '-'
   return `€${Number(value).toFixed(2)}`
+}
+
+// Service names are stored as free text in the DB (usually English), so we map
+// them to Albanian here. Keys are matched case-insensitively; unknown names
+// fall back to the original. Add new entries as services are created.
+const SERVICE_TRANSLATIONS = {
+  sq: {
+    haircut: 'Prerje flokësh',
+    'kids haircut': 'Prerje për fëmijë',
+    beard: 'Mjekër',
+    'beard trim': 'Rregullim mjekre',
+    shave: 'Rruajtje',
+    'haircut & beard': 'Prerje + Mjekër',
+    'haircut and beard': 'Prerje + Mjekër',
+    'hair wash': 'Larje flokësh',
+    styling: 'Stilizim'
+  }
+}
+
+function translateService(name, language) {
+  if (!name) return name
+  const dict = SERVICE_TRANSLATIONS[language]
+  return dict?.[name.trim().toLowerCase()] || name
+}
+
+// Turns an ISO date (2026-06-01) into a human label: "1st June 2026" (en) or
+// "1 Qershor 2026" (sq). Parsed manually to avoid UTC timezone roll-over.
+function formatLongDate(iso, language) {
+  if (!iso) return '-'
+  const [year, month, day] = iso.split('-').map(Number)
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return iso
+
+  if (language === 'sq') {
+    const months = ['Janar', 'Shkurt', 'Mars', 'Prill', 'Maj', 'Qershor', 'Korrik', 'Gusht', 'Shtator', 'Tetor', 'Nëntor', 'Dhjetor']
+    return `${day} ${months[month - 1]} ${year}`
+  }
+
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const suffix = day >= 11 && day <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[day % 10] || 'th'
+  return `${day}${suffix} ${months[month - 1]} ${year}`
 }
 
 function buildDateOptions(copy, language) {
@@ -387,7 +435,39 @@ export function BookingPage({ language = 'sq' }) {
 
     setLoading(false)
     if (error) {
-      setStatus(error.message || copy.unavailable)
+      // The server rejects clashes with an English message. Re-fetch the latest
+      // bookings, find the slot that overlaps the chosen service window, and
+      // explain the conflict in the active language (with the duration + the
+      // time that is taken).
+      const duration = selectedService.duration_minutes
+      const { data: latest } = await supabase
+        .from('appointments')
+        .select('start_time, end_time, status')
+        .eq('barber_id', barberId)
+        .eq('appointment_date', date)
+        .in('status', ['pending', 'confirmed', 'walk_in', 'completed'])
+
+      const startMin = toMinutes(selectedSlot.start)
+      const endMin = startMin + duration
+      const conflicts = (latest || [])
+        .filter((appt) =>
+          intervalsOverlap(startMin, endMin, toMinutes(appt.start_time), toMinutes(appt.end_time))
+        )
+        .sort((a, b) => toMinutes(a.start_time) - toMinutes(b.start_time))
+      // Prefer the first booking that starts inside the chosen service window
+      // (e.g. 11:30 when booking 11:00 for 60 min) — that is the slot the
+      // customer sees as taken — rather than an earlier booking spilling in.
+      const clash =
+        conflicts.find((appt) => toMinutes(appt.start_time) >= startMin) || conflicts[0]
+
+      const message = clash
+        ? copy.conflictWithSlot
+            .replace('{duration}', duration)
+            .replace('{time}', toTime(toMinutes(clash.start_time)))
+        : copy.conflictGeneric.replace('{duration}', duration)
+
+      setStatus(message)
+      loadSlotsContext()
       return
     }
 
@@ -397,6 +477,7 @@ export function BookingPage({ language = 'sq' }) {
       barber: selectedBarber.full_name,
       date,
       time: selectedSlot.start,
+      duration: selectedService.duration_minutes,
       price: selectedService.price,
       customer: `${form.firstName.trim()} ${form.lastName.trim()}`.trim()
     })
@@ -490,7 +571,7 @@ export function BookingPage({ language = 'sq' }) {
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block font-display text-base font-bold uppercase tracking-wider text-white">{service.name}</span>
+                        <span className="block font-display text-base font-bold uppercase tracking-wider text-white">{translateService(service.name, language)}</span>
                         <span className="mt-1 block text-xs text-[var(--text-secondary)] font-medium">
                           {service.duration_minutes} {copy.duration}
                         </span>
@@ -622,11 +703,15 @@ export function BookingPage({ language = 'sq' }) {
                       <button
                         key={`${slot.start}-${slot.end}`}
                         type="button"
+                        disabled={slot.reserved}
+                        title={slot.reserved ? copy.reserved : undefined}
                         onClick={() => setSelectedSlot(slot)}
-                        className={`rounded-xl border py-3.5 text-center font-display text-sm font-bold tracking-wider transition-all active:scale-[0.98] cursor-pointer ${
-                          isSelected
-                            ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)] text-[#0a0805]'
-                            : 'border-white/5 bg-[#12100d]/80 text-white hover:border-white/10 hover:bg-[#12100d]'
+                        className={`rounded-xl border py-3.5 text-center font-display text-sm font-bold tracking-wider transition-all active:scale-[0.98] ${
+                          slot.reserved
+                            ? 'cursor-not-allowed border-white/5 bg-[#0a0805]/60 text-[var(--text-muted)] line-through opacity-50'
+                            : isSelected
+                            ? 'cursor-pointer border-[var(--accent-gold)] bg-[var(--accent-gold)] text-[#0a0805]'
+                            : 'cursor-pointer border-white/5 bg-[#12100d]/80 text-white hover:border-white/10 hover:bg-[#12100d]'
                         }`}
                       >
                         {slot.start}
@@ -672,9 +757,13 @@ export function BookingPage({ language = 'sq' }) {
                 <InputField
                   icon={<Phone size={16} className="text-[var(--accent-gold)]" />}
                   required
+                  type="tel"
+                  inputMode="numeric"
                   disabled={!selectedSlot}
                   value={form.phone}
-                  onChange={(event) => setForm({ ...form, phone: event.target.value })}
+                  onChange={(event) =>
+                    setForm({ ...form, phone: event.target.value.replace(/[^0-9+\s]/g, '') })
+                  }
                   placeholder={copy.phone}
                 />
                 
@@ -692,7 +781,7 @@ export function BookingPage({ language = 'sq' }) {
         </div>
 
         {/* Floating / Sticky Booking Summary Sidebar */}
-        <aside className="fixed inset-x-3 bottom-3 z-30 mx-auto max-w-md rounded-2xl border border-white/5 bg-[#0f0d0a]/95 p-5 shadow-2xl backdrop-blur-md safe-bottom lg:sticky lg:top-24 lg:bottom-auto lg:mx-0 lg:max-w-none lg:self-start lg:bg-[#12100d]/80 lg:shadow-sm">
+        <aside className="fixed inset-x-3 bottom-3 z-30 mx-auto max-w-md rounded-2xl border border-white/5 bg-[#0f0d0a]/95 p-5 shadow-2xl backdrop-blur-md safe-bottom lg:sticky lg:top-24 lg:bottom-auto lg:mx-0 lg:max-w-none lg:self-start lg:translate-x-4 lg:bg-[#12100d]/80 lg:shadow-sm xl:translate-x-6">
           <div className="mb-4 flex items-center justify-between gap-3 pb-3 border-b border-white/5">
             <h2 className="font-display text-lg font-bold tracking-wider text-white uppercase">{copy.summary}</h2>
             <span className="rounded-md border border-[var(--border-gold)] bg-[var(--accent-gold-muted)] px-2.5 py-0.5 text-[10px] font-bold font-display uppercase tracking-wider text-[var(--accent-gold)]">
@@ -701,7 +790,7 @@ export function BookingPage({ language = 'sq' }) {
           </div>
           
           <div className="grid gap-3.5 text-xs text-[var(--text-secondary)]">
-            <SummaryRow icon={<Scissors size={14} className="text-[var(--accent-gold)]" />} label={copy.service} value={selectedService?.name || '-'} />
+            <SummaryRow icon={<Scissors size={14} className="text-[var(--accent-gold)]" />} label={copy.service} value={selectedService ? translateService(selectedService.name, language) : '-'} />
             <SummaryRow icon={<UserRound size={14} className="text-[var(--accent-gold)]" />} label={copy.barber} value={selectedBarber?.full_name || '-'} />
             <SummaryRow icon={<CalendarDays size={14} className="text-[var(--accent-gold)]" />} label={copy.date} value={date || '-'} />
             <SummaryRow icon={<Clock3 size={14} className="text-[var(--accent-gold)]" />} label={copy.time} value={selectedSlot?.start || '-'} />
@@ -789,8 +878,8 @@ export function BookingPage({ language = 'sq' }) {
 
       {/* Floating Error Notification */}
       {status && (
-        <div className="fixed inset-x-4 bottom-28 z-45 mx-auto max-w-md rounded-xl border border-red-500/30 bg-[#12100d]/95 backdrop-blur-md px-5 py-4 shadow-2xl animate-fade-in lg:bottom-8">
-          <p className="text-xs font-bold text-center text-red-300 tracking-wide">
+        <div className="fixed top-4 inset-x-4 z-[60] mx-auto max-w-md rounded-xl border border-red-500/30 bg-[#12100d]/95 backdrop-blur-md px-5 py-4 shadow-2xl animate-fade-in sm:inset-x-auto sm:right-4 sm:top-6 sm:mx-0 sm:max-w-sm">
+          <p className="text-xs font-bold text-center text-red-300 tracking-wide sm:text-left">
             {status}
           </p>
         </div>
@@ -830,10 +919,11 @@ export function BookingPage({ language = 'sq' }) {
 
             <div className="mt-6 grid gap-3 rounded-xl border border-white/5 bg-[#0a0805]/50 p-4 text-xs">
               <SummaryRow icon={<UserRound size={14} className="text-[var(--accent-gold)]" />} label={copy.clientLabel} value={confirmation.customer} />
-              <SummaryRow icon={<Scissors size={14} className="text-[var(--accent-gold)]" />} label={copy.service} value={confirmation.service} />
+              <SummaryRow icon={<Scissors size={14} className="text-[var(--accent-gold)]" />} label={copy.service} value={translateService(confirmation.service, language)} />
               <SummaryRow icon={<UserRound size={14} className="text-[var(--accent-gold)]" />} label={copy.barber} value={confirmation.barber} />
-              <SummaryRow icon={<CalendarDays size={14} className="text-[var(--accent-gold)]" />} label={copy.date} value={confirmation.date} />
+              <SummaryRow icon={<CalendarDays size={14} className="text-[var(--accent-gold)]" />} label={copy.date} value={formatLongDate(confirmation.date, language)} />
               <SummaryRow icon={<Clock3 size={14} className="text-[var(--accent-gold)]" />} label={copy.time} value={confirmation.time} />
+              <SummaryRow icon={<Sparkles size={14} className="text-[var(--accent-gold)]" />} label={copy.durationLabel} value={`${confirmation.duration} ${copy.duration}`} />
               <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-3">
                 <span className="font-bold uppercase tracking-wider text-white">{copy.total}</span>
                 <span className="font-display text-lg font-bold text-[var(--accent-gold)]">{formatEuro(confirmation.price)}</span>

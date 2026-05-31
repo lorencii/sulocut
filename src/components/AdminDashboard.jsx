@@ -198,7 +198,7 @@ export function AdminDashboard() {
             </div>
             <div>
               <h2 className="font-display text-sm font-bold tracking-widest text-white uppercase">ADMIN</h2>
-              <p className="text-[10px] text-[var(--accent-gold)] font-bold tracking-wider font-display uppercase">BARBER BROTHERS</p>
+              <p className="text-[10px] text-[var(--accent-gold)] font-bold tracking-wider font-display uppercase">SuLoCut</p>
             </div>
           </div>
 
