@@ -514,10 +514,10 @@ export function BookingPage({ language = 'sq' }) {
         </div>
       </div>
 
-      <section className="mx-auto grid w-full max-w-7xl gap-8 px-4 py-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-8 px-4 py-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
         
         {/* Reservation Wizard Steps */}
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           
           {/* Step Indicators (Progress Bar) */}
           <div id="booking" className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
@@ -644,7 +644,7 @@ export function BookingPage({ language = 'sq' }) {
                 required={copy.required}
                 locked={!selectedBarber}
               />
-              <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none">
+              <div className="grid grid-cols-4 gap-2 sm:gap-2.5 md:grid-cols-8 lg:grid-cols-4 xl:grid-cols-8">
                 {dateOptions.map((option) => {
                   const closed = selectedBarber && !openWeekdays.has(option.dayOfWeek)
                   const isSelected = date === option.iso
@@ -657,16 +657,16 @@ export function BookingPage({ language = 'sq' }) {
                         setDate(option.iso)
                         setSelectedSlot(null)
                       }}
-                      className={`min-w-[95px] rounded-xl border p-3.5 text-left transition-all active:scale-[0.98] cursor-pointer disabled:cursor-not-allowed disabled:opacity-20 ${
+                      className={`rounded-xl border p-2.5 text-left transition-all active:scale-[0.98] cursor-pointer disabled:cursor-not-allowed disabled:opacity-20 ${
                         isSelected
                           ? 'border-[var(--accent-gold)] bg-[var(--accent-gold-muted)] text-white'
                           : 'border-white/5 bg-[#12100d]/80 text-[var(--text-secondary)] hover:border-white/10 hover:bg-[#12100d]'
                       }`}
                     >
-                      <span className="block text-[10px] font-bold font-display uppercase tracking-widest text-[var(--text-muted)]">
+                      <span className="block text-[10px] font-bold font-display uppercase tracking-wide text-[var(--text-muted)]">
                         {option.isToday ? copy.today : option.weekday}
                       </span>
-                      <span className="mt-1 block font-display text-base font-bold tracking-wider text-white">{option.day}</span>
+                      <span className="mt-1 block font-display text-sm font-bold tracking-wide text-white sm:text-base">{option.day}</span>
                       {closed && (
                         <span className="mt-1 block text-[10px] font-bold font-display uppercase tracking-wider text-red-400">
                           {copy.closed}
@@ -784,7 +784,7 @@ export function BookingPage({ language = 'sq' }) {
         </div>
 
         {/* Floating / Sticky Booking Summary Sidebar */}
-        <aside className="gradient-border fixed inset-x-3 bottom-3 z-30 mx-auto max-w-md rounded-2xl border border-[var(--border-gold)] bg-[#0f0d0a]/95 p-5 shadow-2xl backdrop-blur-md safe-bottom lg:sticky lg:top-24 lg:bottom-auto lg:mx-0 lg:max-w-none lg:self-start lg:translate-x-4 lg:bg-[#12100d]/80 lg:shadow-[0_0_40px_-12px_rgba(200,169,126,0.3)] xl:translate-x-6">
+        <aside className="gradient-border relative z-30 w-full min-w-0 rounded-2xl border border-[var(--border-gold)] bg-[#0f0d0a]/95 p-5 shadow-2xl lg:sticky lg:top-24 lg:mx-0 lg:max-w-none lg:self-start lg:translate-x-4 lg:bg-[#12100d]/80 lg:shadow-[0_0_40px_-12px_rgba(200,169,126,0.3)] xl:translate-x-6">
           <div className="mb-4 flex items-center justify-between gap-3 pb-3 border-b border-white/5">
             <h2 className="font-display text-lg font-bold tracking-wider text-white uppercase">{copy.summary}</h2>
             <span className="rounded-md border border-[var(--border-gold)] bg-[var(--accent-gold-muted)] px-2.5 py-0.5 text-[10px] font-bold font-display uppercase tracking-wider text-[var(--accent-gold)]">
@@ -823,7 +823,7 @@ export function BookingPage({ language = 'sq' }) {
       </section>
 
       {/* Info Sections */}
-      <section className="mx-auto w-full max-w-7xl px-4 pb-32 md:px-8 lg:pb-16 mt-8">
+      <section className="mx-auto w-full max-w-7xl px-4 pb-16 md:px-8 mt-8">
         <div className="mb-6">
           <span className="font-display text-xs font-bold tracking-widest text-[var(--accent-gold)] uppercase block mb-1">
             Barber Studio
