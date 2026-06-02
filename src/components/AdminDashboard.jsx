@@ -14,7 +14,10 @@ import {
   ExternalLink,
   TrendingUp,
   ShieldCheck,
-  ChevronLeft
+  ChevronLeft,
+  UserPlus,
+  Mail,
+  KeyRound
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { toISODate, todayISO } from '../utils/time'
@@ -369,16 +372,7 @@ export function AdminDashboard() {
                 ))}
               </div>
 
-              <div className="premium-card p-5 border border-[var(--border-gold)] bg-[var(--accent-gold-muted)]/30">
-                <h4 className="font-display text-xs font-bold tracking-widest text-[var(--accent-gold)] uppercase mb-2">Shto / Menaxho llogari</h4>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  Llogaritë e berberëve krijohen në Supabase SQL Editor (për siguri). Komandat:
-                </p>
-                <pre className="mt-3 overflow-x-auto rounded-lg bg-[#0a0805]/70 border border-white/5 p-3 text-[11px] text-[var(--accent-gold)]">
-{`select public.create_barber('emer@barberbrothers.style', 'fjalekalimi', 'Emri', '+38344000000');
-select public.set_barber_password('emer@barberbrothers.style', 'fjalekalimi_ri');`}
-                </pre>
-              </div>
+              <AddBarberForm onCreated={loadData} />
             </div>
           )}
 
@@ -561,6 +555,105 @@ function ServicesManager({ services, barbers, onChanged }) {
         <button disabled={saving} className="btn-gold cursor-pointer disabled:opacity-40">
           <Plus size={16} /> Shto
         </button>
+      </form>
+    </div>
+  )
+}
+
+function AddBarberForm({ onCreated }) {
+  const [form, setForm] = useState({ full_name: '', email: '', phone: '', password: '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const setField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+    if (!form.full_name.trim() || !form.email.trim() || !form.password) {
+      setError('Plotëso emrin, email-in dhe fjalëkalimin.')
+      return
+    }
+    if (form.password.length < 6) {
+      setError('Fjalëkalimi duhet të ketë të paktën 6 karaktere.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) {
+        setError('Sesioni skadoi. Hyr përsëri.')
+        return
+      }
+
+      const res = await fetch('/.netlify/functions/create-barber', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form)
+      })
+
+      if (res.status === 404) {
+        setError('Funksioni nuk u gjet. Kjo punon vetëm në deploy-in e Netlify (jo në `vite dev`).')
+        return
+      }
+
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(out.error || 'Krijimi i berberit dështoi.')
+        return
+      }
+
+      setSuccess(`Berberi "${form.full_name.trim()}" u krijua. Cakto shërbimet që ofron te skeda "Shërbimet".`)
+      setForm({ full_name: '', email: '', phone: '', password: '' })
+      onCreated()
+    } catch {
+      setError('Lidhja me serverin dështoi.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputClass =
+    'w-full rounded-lg border border-white/5 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-gold)] focus:bg-white/10 transition-all'
+
+  return (
+    <div className="premium-card p-5 border border-[var(--border-gold)] bg-[var(--accent-gold-muted)]/30">
+      <h4 className="font-display text-xs font-bold tracking-widest text-[var(--accent-gold)] uppercase mb-1 flex items-center gap-2">
+        <UserPlus size={14} /> Shto berber
+      </h4>
+      <p className="text-xs text-[var(--text-secondary)] leading-relaxed mb-4">
+        Krijo një llogari të re berberi. Llogaria mund të hyjë menjëherë te <span className="text-white font-semibold">/barber</span>.
+      </p>
+
+      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+        <label className="relative block">
+          <span className="pointer-events-none absolute left-3 top-3 text-[var(--text-muted)]"><Users size={16} /></span>
+          <input value={form.full_name} onChange={setField('full_name')} placeholder="Emri i plotë" required className={inputClass} />
+        </label>
+        <label className="relative block">
+          <span className="pointer-events-none absolute left-3 top-3 text-[var(--text-muted)]"><Phone size={16} /></span>
+          <input value={form.phone} onChange={setField('phone')} type="tel" inputMode="tel" placeholder="Telefoni (opsional)" className={inputClass} />
+        </label>
+        <label className="relative block">
+          <span className="pointer-events-none absolute left-3 top-3 text-[var(--text-muted)]"><Mail size={16} /></span>
+          <input value={form.email} onChange={setField('email')} type="email" autoComplete="off" placeholder="Email" required className={inputClass} />
+        </label>
+        <label className="relative block">
+          <span className="pointer-events-none absolute left-3 top-3 text-[var(--text-muted)]"><KeyRound size={16} /></span>
+          <input value={form.password} onChange={setField('password')} type="text" autoComplete="new-password" placeholder="Fjalëkalimi (min. 6)" required className={inputClass} />
+        </label>
+
+        <div className="sm:col-span-2 flex flex-col gap-2">
+          {error && <p className="text-xs font-bold text-red-400">{error}</p>}
+          {success && <p className="text-xs font-bold text-green-400">{success}</p>}
+          <button type="submit" disabled={saving} className="btn-gold w-full cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+            <UserPlus size={16} /> {saving ? 'Duke krijuar...' : 'Krijo berberin'}
+          </button>
+        </div>
       </form>
     </div>
   )
