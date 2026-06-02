@@ -17,7 +17,9 @@ import {
   ChevronLeft,
   UserPlus,
   Mail,
-  KeyRound
+  KeyRound,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { toISODate, todayISO } from '../utils/time'
@@ -38,6 +40,9 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('overview') // overview | appointments | barbers | services
   const [selectedDate, setSelectedDate] = useState(todayISO())
+  const [deleteTarget, setDeleteTarget] = useState(null) // barber pending deletion
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   const today = todayISO()
   const hasLoadedRef = useRef(false)
@@ -131,6 +136,44 @@ export function AdminDashboard() {
     const { error } = await supabase.from('appointments').update({ status }).eq('id', id)
     if (error) alert('Error: ' + error.message)
     else loadData()
+  }
+
+  async function confirmDeleteBarber() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) {
+        setDeleteError('Sesioni skadoi. Hyr përsëri.')
+        return
+      }
+
+      const res = await fetch('/.netlify/functions/delete-barber', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: deleteTarget.id })
+      })
+
+      if (res.status === 404) {
+        setDeleteError('Funksioni nuk u gjet. Kjo punon vetëm në deploy-in e Netlify (jo në `vite dev`).')
+        return
+      }
+
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setDeleteError(out.error || 'Fshirja dështoi.')
+        return
+      }
+
+      setDeleteTarget(null)
+      loadData()
+    } catch {
+      setDeleteError('Lidhja me serverin dështoi.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   // ---- Derived stats ----
@@ -358,10 +401,19 @@ export function AdminDashboard() {
                       <div className="h-11 w-11 rounded-lg border border-[var(--border-gold)] bg-white/5 font-display font-bold flex items-center justify-center text-[var(--accent-gold)]">
                         {b.name?.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
                       </div>
-                      <div>
-                        <p className="font-bold text-white text-sm">{b.name}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-white text-sm truncate">{b.name}</p>
                         <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-display">Berber</p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => { setDeleteError(''); setDeleteTarget(b) }}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+                        aria-label={`Fshi ${b.name}`}
+                        title="Fshi berberin"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <MiniStat label="Sot" value={b.todayCount} />
@@ -389,6 +441,53 @@ export function AdminDashboard() {
         <MobileTab icon={<Users size={18} />} label="Berberë" active={activeTab === 'barbers'} onClick={() => setActiveTab('barbers')} />
         <MobileTab icon={<Wrench size={18} />} label="Shërbime" active={activeTab === 'services'} onClick={() => setActiveTab('services')} />
       </nav>
+
+      {/* Delete barber confirmation */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-[#0a0805]/85 backdrop-blur-sm px-3 pb-3 sm:items-center sm:pb-0 animate-fade-in"
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
+          <div
+            className="gradient-border w-full max-w-md rounded-2xl border border-red-500/30 bg-[#12100d] p-6 shadow-2xl safe-bottom relative"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 text-red-400">
+              <AlertTriangle size={22} />
+            </div>
+
+            <h2 className="font-display text-lg font-bold uppercase tracking-wider text-white">
+              Fshi berberin
+            </h2>
+            <p className="mt-2 text-xs text-[var(--text-secondary)] leading-relaxed">
+              Po fshin përfundimisht <span className="font-bold text-white">{deleteTarget.name}</span>. Kjo
+              do të heqë llogarinë e hyrjes dhe <span className="font-bold text-red-400">të gjitha rezervimet,
+              oraret dhe shërbimet</span> e tij. Ky veprim nuk mund të zhbëhet.
+            </p>
+
+            {deleteError && <p className="mt-4 text-xs font-bold text-red-400">{deleteError}</p>}
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold font-display uppercase tracking-wider text-[var(--text-secondary)] hover:text-white transition-all cursor-pointer disabled:opacity-40"
+              >
+                Anulo
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteBarber}
+                disabled={deleting}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold font-display uppercase tracking-wider text-white hover:bg-red-500 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={14} /> {deleting ? 'Duke fshirë...' : 'Fshi përfundimisht'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
