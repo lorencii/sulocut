@@ -36,6 +36,10 @@ export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview') // overview | appointments | barbers | services
   const [selectedDate, setSelectedDate] = useState(todayISO())
 
+  const [barberDrafts, setBarberDrafts] = useState({})
+  const [newBarber, setNewBarber] = useState({ email: '', password: '', full_name: '', phone: '' })
+  const [barberSaving, setBarberSaving] = useState(false)
+
   const today = todayISO()
   const hasLoadedRef = useRef(false)
 
@@ -128,6 +132,74 @@ export function AdminDashboard() {
     const { error } = await supabase.from('appointments').update({ status }).eq('id', id)
     if (error) alert('Error: ' + error.message)
     else loadData()
+  }
+
+  async function adminBarbersRequest(method, payload) {
+    const res = await fetch('/.netlify/functions/barbers', {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${session?.access_token || ''}`
+      },
+      body: payload ? JSON.stringify(payload) : undefined
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || 'Request failed')
+    return data
+  }
+
+  const draftForBarber = (b) =>
+    barberDrafts[b.id] || { full_name: b.full_name || '', phone: b.phone || '' }
+  const setBarberDraft = (id, patch) =>
+    setBarberDrafts((d) => ({
+      ...d,
+      [id]: { ...draftForBarber(barbers.find((b) => b.id === id) || {}), ...d[id], ...patch }
+    }))
+
+  async function saveBarber(b) {
+    const d = draftForBarber(b)
+    setBarberSaving(true)
+    try {
+      await adminBarbersRequest('PATCH', { id: b.id, full_name: d.full_name, phone: d.phone })
+      setBarberDrafts((prev) => {
+        const next = { ...prev }
+        delete next[b.id]
+        return next
+      })
+      loadData()
+    } catch (err) {
+      alert('Error: ' + err.message)
+    } finally {
+      setBarberSaving(false)
+    }
+  }
+
+  async function addBarber(event) {
+    event.preventDefault()
+    if (!newBarber.email || !newBarber.password || !newBarber.full_name) return
+    setBarberSaving(true)
+    try {
+      await adminBarbersRequest('POST', newBarber)
+      setNewBarber({ email: '', password: '', full_name: '', phone: '' })
+      loadData()
+    } catch (err) {
+      alert('Error: ' + err.message)
+    } finally {
+      setBarberSaving(false)
+    }
+  }
+
+  async function removeBarber(b) {
+    if (!confirm(`Hiq berberin "${b.full_name}"? Ky veprim fshin llogarinë e tij të kyçjes.`)) return
+    setBarberSaving(true)
+    try {
+      await adminBarbersRequest('DELETE', { id: b.id })
+      loadData()
+    } catch (err) {
+      alert('Error: ' + err.message)
+    } finally {
+      setBarberSaving(false)
+    }
   }
 
   // ---- Derived stats ----
@@ -369,15 +441,109 @@ export function AdminDashboard() {
                 ))}
               </div>
 
-              <div className="premium-card p-5 border border-[var(--border-gold)] bg-[var(--accent-gold-muted)]/30">
-                <h4 className="font-display text-xs font-bold tracking-widest text-[var(--accent-gold)] uppercase mb-2">Shto / Menaxho llogari</h4>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  Llogaritë e berberëve krijohen në Supabase SQL Editor (për siguri). Komandat:
-                </p>
-                <pre className="mt-3 overflow-x-auto rounded-lg bg-[#0a0805]/70 border border-white/5 p-3 text-[11px] text-[var(--accent-gold)]">
-{`select public.create_barber('emer@barberbrothers.style', 'fjalekalimi', 'Emri', '+38344000000');
-select public.set_barber_password('emer@barberbrothers.style', 'fjalekalimi_ri');`}
-                </pre>
+              <div className="premium-card overflow-hidden border border-white/5 bg-[#12100d]/80">
+                <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-display text-xs font-bold tracking-widest text-[var(--accent-gold)] uppercase">Menaxho Berberët</h4>
+                    <p className="text-[11px] text-[var(--text-secondary)] mt-1">Shto, përditëso ose hiq llogaritë e berberëve.</p>
+                  </div>
+                  {barberSaving && <span className="text-[10px] text-[var(--text-muted)] animate-pulse">Duke ruajtur...</span>}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-white/5 text-[10px] uppercase font-bold tracking-wider font-display text-[var(--text-muted)] bg-black/25">
+                        <th className="px-5 py-3">Emri</th>
+                        <th className="px-5 py-3">Telefon</th>
+                        <th className="px-5 py-3 text-right">Veprime</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-[var(--text-secondary)]">
+                      {barbers.map((b) => {
+                        const d = draftForBarber(b)
+                        const dirty = Boolean(barberDrafts[b.id])
+                        return (
+                          <tr key={b.id} className={dirty ? 'bg-[var(--accent-gold-muted)]/20' : ''}>
+                            <td className="px-5 py-3">
+                              <input
+                                value={d.full_name}
+                                onChange={(e) => setBarberDraft(b.id, { full_name: e.target.value })}
+                                className="w-full min-w-[220px] rounded border border-white/5 bg-white/5 px-2 py-1.5 text-white focus:outline-none focus:border-[var(--accent-gold)]"
+                              />
+                            </td>
+                            <td className="px-5 py-3">
+                              <input
+                                value={d.phone}
+                                onChange={(e) => setBarberDraft(b.id, { phone: e.target.value })}
+                                className="w-full min-w-[160px] rounded border border-white/5 bg-white/5 px-2 py-1.5 text-white focus:outline-none focus:border-[var(--accent-gold)]"
+                              />
+                            </td>
+                            <td className="px-5 py-3 text-right whitespace-nowrap">
+                              <button
+                                disabled={!dirty || barberSaving}
+                                onClick={() => saveBarber(b)}
+                                className="inline-flex items-center gap-1 rounded bg-[var(--accent-gold)] px-3 py-1.5 text-[10px] font-bold font-display uppercase tracking-wider text-[#0a0805] disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                              >
+                                <Save size={12} /> Ruaj
+                              </button>
+                              <button
+                                disabled={barberSaving}
+                                onClick={() => removeBarber(b)}
+                                className="ml-2 inline-flex items-center gap-1 rounded border border-red-500/25 bg-red-500/10 px-3 py-1.5 text-[10px] font-bold font-display uppercase tracking-wider text-red-300 hover:bg-red-500/15 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                Hiq
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {barbers.length === 0 && (
+                        <tr><td colSpan="3" className="px-5 py-8 text-center text-[var(--text-muted)]">Asnjë berber.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <form onSubmit={addBarber} className="px-5 py-5 border-t border-white/5 grid gap-3">
+                  <h5 className="text-[10px] font-bold font-display uppercase tracking-widest text-[var(--text-muted)]">Shto berber të ri</h5>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <input
+                      value={newBarber.full_name}
+                      onChange={(e) => setNewBarber((s) => ({ ...s, full_name: e.target.value }))}
+                      placeholder="Emri"
+                      required
+                      className="w-full rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-gold)]"
+                    />
+                    <input
+                      value={newBarber.phone}
+                      onChange={(e) => setNewBarber((s) => ({ ...s, phone: e.target.value }))}
+                      placeholder="Telefoni"
+                      className="w-full rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-gold)]"
+                    />
+                    <input
+                      value={newBarber.email}
+                      onChange={(e) => setNewBarber((s) => ({ ...s, email: e.target.value }))}
+                      placeholder="Email"
+                      type="email"
+                      required
+                      className="w-full rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-gold)]"
+                    />
+                    <input
+                      value={newBarber.password}
+                      onChange={(e) => setNewBarber((s) => ({ ...s, password: e.target.value }))}
+                      placeholder="Fjalëkalimi"
+                      type="password"
+                      required
+                      className="w-full rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-gold)]"
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <button disabled={barberSaving} className="btn-gold cursor-pointer disabled:opacity-40">
+                      <Plus size={16} /> Shto
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
