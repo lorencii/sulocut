@@ -305,18 +305,9 @@ body {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: conic-gradient(
-    from var(--bd-angle),
-    transparent 0%,
-    rgba(200, 169, 126, 0.9) 12%,
-    transparent 30%,
-    transparent 60%,
-    rgba(200, 169, 126, 0.55) 78%,
-    transparent 92%
-  );
+
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: bdRotate 6s linear infinite;
   pointer-events: none;
   z-index: -1;
 }
